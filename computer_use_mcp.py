@@ -75,72 +75,34 @@ if "--help" in sys.argv or "-h" in sys.argv:
 # Create MCP server
 mcp = FastMCP(
     "Computer Use",
-    instructions="""This MCP server provides computer control capabilities.
-You can take screenshots, click, type, press keys, and move the mouse.
+    instructions="""Computer control via screenshots, mouse, keyboard, and OCR.
 
-IMPORTANT - USE UI AUTOMATION FIRST:
-Before trying to visually identify icons or elements in screenshots, use these tools:
-- get_ui_state() - Get all windows and taskbar apps with exact coordinates
-- get_taskbar_apps() - List all taskbar items with click coordinates
-- click_taskbar_app("name") - Click a taskbar app by name (much more reliable!)
-- get_all_windows() - List all open windows
-- find_and_click_window("title") - Find and focus a window by title
+WORKFLOW:
+1. Use ocr_screen() to find text and get click coordinates
+2. Use left_click(x, y) with the coordinates from OCR
+3. Use verify_text_on_screen("text") to confirm actions worked
 
-These use the Windows UI Automation API and are FAR more reliable than trying
-to visually identify icons in screenshots. Use them whenever possible!
+OCR TOOLS:
+- ocr_screen() - Returns all visible text with click coordinates
+- verify_text_on_screen("text") - Find specific text and get its coordinates
+- set_enhance_mode(true) - Enable contrast enhancement for better OCR on dark UIs
 
-AI VISION TOOLS (Florence-2):
-- ocr_screen() - Extract all text visible on screen (great for verification!)
-- describe_screen() - Get AI description of what's on screen
-- verify_text_on_screen("expected text") - Check if specific text is visible
+VISUAL TOOLS:
+- screenshot() - Full screen overview (scaled)
+- zoom(x, y, w, h) - Native resolution region capture
+- describe_screen() - AI description of screen content
 
-Use these to VERIFY actions worked instead of just assuming!
+UI AUTOMATION:
+- get_all_windows() - List open windows with positions
+- find_and_click_window("title") - Focus a window by title
+- get_ui_state() - Get all windows with coordinates
 
-COORDINATE SYSTEM:
-- All coordinates are in native screen pixels
-- Origin (0, 0) is at the TOP-LEFT corner
-- X increases going RIGHT
-- Y increases going DOWN
-- Screen is 3840x2160 (4K)
+INPUT:
+- left_click(x, y), right_click(x, y), double_click(x, y)
+- type_text("text"), key("ctrl+s")
+- scroll(x, y, "up"/"down")
 
-SCREENSHOT vs ZOOM vs ENHANCE:
-- Use 'screenshot' for overview of the full screen (scaled down for efficiency)
-- Use 'zoom' when you need to read small text or precisely identify click targets
-- Use 'enhance' when visual elements are hard to distinguish due to low contrast
-
-COORDINATE CONSISTENCY:
-- screenshot: Image is scaled but coordinates map 1:1 to native screen
-- zoom/enhance: Returns exact region you request. To click something at pixel (px, py)
-  within the zoomed/enhanced image, calculate: click_x = region_x + px, click_y = region_y + py
-
-EFFECTIVE USE OF ZOOM - SEARCHING FOR THINGS:
-- Don't assume you'll find what you need in one zoom - be prepared to pan around
-- If you don't see what you're looking for, try zooming a DIFFERENT region
-- Start wide (e.g., 1500-2000px) to get context, then narrow down
-- If text is still hard to read after zooming, try a smaller region or enable enhance
-- THINK ABOUT THE SHAPE: taskbar is horizontal (use wide rectangles like 2000x70),
-  menus are vertical (use tall rectangles), dialogs are roughly square
-- TO ZOOM OUT: use full screenshot() to regain context and orientation
-- Alternate between screenshot (overview) and zoom (detail) as needed
-
-SYSTEMATIC PANNING - DON'T GIVE UP:
-- If you don't find what you're looking for, PAN in all directions: LEFT, RIGHT, UP, DOWN
-- Keep panning until you've covered the entire possible area
-- Never assume you've looked "far enough" - keep panning until you find it or exhaust the space
-- If lost, take a full screenshot() to "zoom out" and reorient yourself
-- Track which regions you've already checked to avoid redundant searches
-
-BEFORE CLICKING - VERIFY YOUR TARGET:
-- Use get_mouse_position() to check current position
-- Move mouse to target with mouse_move(), then take screenshot to verify position
-- After clicking: zoom on affected area to VERIFY the action worked (don't assume)
-
-COMMON MISTAKES TO AVOID:
-- Clicking near the top of a window title bar can hit minimize/maximize/close buttons
-- The minimize button is usually a dash/line icon near the top-right of windows
-- If you meant to click a tab but the window vanished, check the taskbar
-- Looking only at the LEFT side of taskbar - running apps are often further RIGHT
-- Using the same zoom region repeatedly - pan around to explore"""
+COORDINATES: Origin (0,0) is top-left. X increases right, Y increases down."""
 )
 
 
@@ -426,105 +388,6 @@ def set_enhance_mode(enabled: bool) -> str:
 
 
 @mcp.tool()
-def list_screenshots(limit: int = 10) -> str:
-    """
-    List recent screenshots from the current session.
-
-    Use this when you want to:
-    - Review what you've captured so far
-    - Find a previous screenshot to re-examine
-    - Check what regions you've already zoomed into
-
-    Args:
-        limit: Maximum number of screenshots to list (default: 10, most recent first)
-
-    Returns list of filenames with metadata (timestamp, type, region if zoom, enhanced status).
-    """
-    try:
-        files = sorted(SCREENSHOTS_DIR.glob("*.png"), key=lambda f: f.stat().st_mtime, reverse=True)
-        files = files[:limit]
-
-        if not files:
-            return f"No screenshots in current session ({SESSION_ID})"
-
-        result = [f"Recent screenshots (session: {SESSION_ID}):"]
-        for f in files:
-            name = f.name
-            # Parse filename for metadata
-            parts = name.replace(".png", "").split("_")
-            timestamp = f"{parts[0]}_{parts[1]}" if len(parts) >= 2 else "unknown"
-            enhanced = "_enhanced" in name
-            is_zoom = "_zoom_" in name
-
-            if is_zoom:
-                # Extract region info from filename like: timestamp_zoom_100x200_400x300_enhanced.png
-                result.append(f"  {name} [ZOOM]{' [ENHANCED]' if enhanced else ''}")
-            else:
-                result.append(f"  {name} [FULL]{' [ENHANCED]' if enhanced else ''}")
-
-        return "\n".join(result)
-    except Exception as e:
-        return f"Error listing screenshots: {e}"
-
-
-@mcp.tool()
-def view_screenshot(filename: str) -> str:
-    """
-    Re-load and return a previous screenshot from this session.
-
-    Use this when you want to:
-    - Re-examine a screenshot you took earlier without taking a new one
-    - Compare what the screen looked like before vs after an action
-    - Look at a zoomed region again to find something you missed
-
-    Args:
-        filename: The filename of the screenshot (from list_screenshots output)
-
-    Returns the base64-encoded PNG data of the screenshot.
-    """
-    try:
-        filepath = SCREENSHOTS_DIR / filename
-        if not filepath.exists():
-            # Try other sessions if not in current
-            for session_dir in SCREENSHOTS_BASE.iterdir():
-                if session_dir.is_dir():
-                    alt_path = session_dir / filename
-                    if alt_path.exists():
-                        filepath = alt_path
-                        break
-
-        if not filepath.exists():
-            return f"Screenshot not found: {filename}"
-
-        with open(filepath, "rb") as f:
-            img_data = f.read()
-        img_b64 = base64.standard_b64encode(img_data).decode("utf-8")
-
-        # Parse region info from filename if it's a zoom
-        region_info = ""
-        if "_zoom_" in filename:
-            # Parse: timestamp_zoom_Xx_Y_WxH_enhanced.png
-            try:
-                parts = filename.replace(".png", "").replace("_enhanced", "").split("_zoom_")[1]
-                coords = parts.split("_")
-                if len(coords) >= 2:
-                    xy = coords[0].split("x")
-                    wh = coords[1].split("x")
-                    x, y = int(xy[0]), int(xy[1])
-                    w, h = int(wh[0]), int(wh[1])
-                    region_info = f"\nRegion: x={x}, y={y}, width={w}, height={h}\nTo click at (px,py) in image: click({x}+px, {y}+py)"
-            except:
-                pass
-
-        return (
-            f"Loaded screenshot: {filename}{region_info}\n"
-            f"Base64 PNG data: {img_b64[:100]}... (truncated, {len(img_b64)} chars total)"
-        )
-    except Exception as e:
-        return f"Error loading screenshot: {e}"
-
-
-@mcp.tool()
 def get_screen_size() -> dict:
     """
     Get the dimensions of the primary screen.
@@ -696,19 +559,6 @@ def scroll(x: int, y: int, direction: str, amount: int = 3) -> str:
 
 
 @mcp.tool()
-def wait(seconds: float = 1.0) -> str:
-    """
-    Wait for the specified number of seconds.
-    Useful after actions that trigger UI changes.
-
-    Args:
-        seconds: Number of seconds to wait (default: 1.0)
-    """
-    time.sleep(seconds)
-    return f"Waited {seconds} seconds"
-
-
-@mcp.tool()
 def get_mouse_position() -> dict:
     """
     Get the current mouse cursor position.
@@ -721,71 +571,6 @@ def get_mouse_position() -> dict:
 # =============================================================================
 # UI AUTOMATION TOOLS - More reliable than visual detection
 # =============================================================================
-
-@mcp.tool()
-def get_taskbar_apps() -> str:
-    """
-    Get all applications shown in the Windows taskbar.
-
-    This uses the Windows UI Automation API to directly query the taskbar,
-    providing exact names and click coordinates for each app.
-
-    Returns a list of all taskbar items (Start, Search, running apps, system tray).
-    Each item includes the name and exact coordinates to click.
-
-    USE THIS instead of trying to visually identify icons in screenshots!
-    """
-    if not _uia_available or not _uia:
-        return "Error: UI Automation not available. Install pywinauto: pip install pywinauto"
-
-    try:
-        apps = _uia.get_taskbar_apps()
-        if not apps:
-            return "No taskbar apps found"
-
-        result = ["Taskbar Applications:"]
-        for app in apps:
-            result.append(f"  - '{app.name}' -> click at ({app.center_x}, {app.center_y})")
-
-        return "\n".join(result)
-    except Exception as e:
-        return f"Error getting taskbar apps: {e}"
-
-
-@mcp.tool()
-def click_taskbar_app(app_name: str) -> str:
-    """
-    Click on a taskbar application by name.
-
-    This is MUCH more reliable than trying to visually identify and click icons.
-    Uses Windows UI Automation to find the exact app location.
-
-    Args:
-        app_name: Part of the app name to search for (case-insensitive).
-                  Examples: "Terminal", "Firefox", "Chrome", "Explorer"
-
-    The app_name can be partial - it will match if the taskbar button text
-    contains your search term. For example, "Terminal" will match
-    "Terminal - 2 running windows".
-    """
-    if not _uia_available or not _uia:
-        return "Error: UI Automation not available. Install pywinauto: pip install pywinauto"
-
-    try:
-        app = _uia.find_taskbar_app(app_name)
-        if not app:
-            # List available apps to help user
-            apps = _uia.get_taskbar_apps()
-            app_names = [a.name for a in apps if a.name]
-            return f"App '{app_name}' not found in taskbar.\nAvailable apps: {app_names}"
-
-        # Click on the app
-        pyautogui.click(app.center_x, app.center_y)
-        return f"Clicked on '{app.name}' at ({app.center_x}, {app.center_y})"
-
-    except Exception as e:
-        return f"Error clicking taskbar app: {e}"
-
 
 @mcp.tool()
 def get_all_windows() -> str:
@@ -846,40 +631,21 @@ def find_and_click_window(title: str) -> str:
 @mcp.tool()
 def get_ui_state() -> str:
     """
-    Get a comprehensive UI state including all windows and taskbar apps.
+    Get all open windows with their positions and click coordinates.
 
-    This provides structured information about the current desktop state
-    without needing to analyze screenshots visually.
-
-    Returns:
-        - All visible windows with titles and positions
-        - All taskbar applications with click coordinates
-
-    Use this FIRST when you need to understand what's on screen,
-    instead of trying to parse screenshots visually.
+    Returns window titles, positions, sizes, and center coordinates for clicking.
+    Use this to find and interact with application windows.
     """
     if not _uia_available or not _uia:
         return "Error: UI Automation not available. Install pywinauto: pip install pywinauto"
 
     try:
-        result = ["=" * 50, "CURRENT UI STATE", "=" * 50]
-
-        # Windows
-        result.append("\n--- OPEN WINDOWS ---")
+        result = ["Open Windows:"]
         windows = _uia.get_all_windows()
         for win in windows:
             if win.width > 50 and win.height > 50 and win.x >= -2000:
-                result.append(f"  [{win.name[:50]}]")
-                result.append(f"    Position: ({win.x}, {win.y}) Size: {win.width}x{win.height}")
-                result.append(f"    Click center: ({win.center_x}, {win.center_y})")
+                result.append(f"  '{win.name[:60]}' at ({win.x}, {win.y}) {win.width}x{win.height} -> click({win.center_x}, {win.center_y})")
 
-        # Taskbar
-        result.append("\n--- TASKBAR APPS ---")
-        apps = _uia.get_taskbar_apps()
-        for app in apps:
-            result.append(f"  '{app.name}' -> ({app.center_x}, {app.center_y})")
-
-        result.append("\n" + "=" * 50)
         return "\n".join(result)
 
     except Exception as e:
@@ -893,31 +659,46 @@ def get_ui_state() -> str:
 @mcp.tool()
 def ocr_screen() -> str:
     """
-    Extract all visible text from the current screen using Florence-2 OCR.
+    Extract all visible text from the current screen using PaddleOCR.
 
-    This uses a local AI model (Florence-2) to perform optical character recognition.
-    Much more accurate than BLIP for reading UI text, webpage content, etc.
+    Returns text with click coordinates. Each line shows:
+      'detected text' -> click(x, y)
 
-    Use this to:
-    - Verify what page/application is currently displayed
-    - Read text that might be hard to see in screenshots
-    - Check if expected text is visible on screen after an action
+    To click on detected text, use the coordinates directly with left_click(x, y).
 
-    Returns the extracted text from the screen.
-    Note: First call will take longer as the model loads into GPU memory.
+    If enhance mode is ON, contrast enhancement is applied before OCR
+    which can help with low-contrast text.
     """
+    global _enhance_enabled
+
     if not _florence_available or not florence_vision:
-        return "Error: Florence-2 vision not available. Check that the venv is active and dependencies are installed."
+        return "Error: Vision module not available. Check that the venv is active and dependencies are installed."
 
     try:
-        # Capture screen
+        # Capture screen at full resolution for accurate coordinates
         img = florence_vision.capture_screen()
-        # Resize for faster processing (Florence-2 doesn't need full 4K)
-        img.thumbnail((1280, 1280), Image.Resampling.LANCZOS)
 
-        # Run OCR
-        text = florence_vision.ocr_screenshot(img)
-        return f"OCR Result:\n{text}"
+        # Apply enhancement if enabled (helps with low-contrast text)
+        if _enhance_enabled:
+            img = apply_enhancement(img)
+
+        # Run OCR with regions to get coordinates
+        regions = florence_vision.ocr_with_regions(img)
+
+        if not regions:
+            return "OCR Result: No text detected on screen"
+
+        # Format output with click coordinates
+        result = ["OCR Result (text -> click coordinates):"]
+        for r in regions:
+            bbox = r['bbox']
+            # Calculate center point for clicking
+            center_x = int((bbox[0][0] + bbox[2][0]) / 2)
+            center_y = int((bbox[0][1] + bbox[2][1]) / 2)
+            text = r['text']
+            result.append(f"  '{text}' -> click({center_x}, {center_y})")
+
+        return "\n".join(result)
     except Exception as e:
         return f"Error performing OCR: {e}"
 
@@ -951,45 +732,44 @@ def describe_screen() -> str:
 @mcp.tool()
 def verify_text_on_screen(expected_text: str) -> str:
     """
-    Check if specific text is visible on the current screen.
+    Check if specific text is visible on the current screen and return its click coordinates.
 
-    Uses Florence-2 OCR to extract all text, then searches for the expected text.
-    Case-insensitive search.
+    Uses PaddleOCR to find text. Case-insensitive partial match.
 
     Args:
         expected_text: The text to look for on screen
 
-    Returns whether the text was found and context around it if present.
+    Returns whether the text was found, with click coordinates if found.
 
-    Use this to verify:
-    - Page navigation succeeded (check for page title/URL)
-    - Dialog appeared (check for dialog text)
-    - Action completed (check for confirmation message)
+    Use this to verify actions worked (page loaded, dialog appeared, etc.)
     """
+    global _enhance_enabled
+
     if not _florence_available or not florence_vision:
-        return "Error: Florence-2 vision not available. Check that the venv is active and dependencies are installed."
+        return "Error: Vision module not available. Check that the venv is active."
 
     try:
-        # Capture screen
+        # Capture screen at full resolution
         img = florence_vision.capture_screen()
-        img.thumbnail((1280, 1280), Image.Resampling.LANCZOS)
 
-        # Run OCR
-        ocr_text = florence_vision.ocr_screenshot(img)
+        # Apply enhancement if enabled
+        if _enhance_enabled:
+            img = apply_enhancement(img)
+
+        # Run OCR with regions
+        regions = florence_vision.ocr_with_regions(img)
 
         # Search for expected text (case-insensitive)
-        if expected_text.lower() in ocr_text.lower():
-            # Find context around the match
-            lower_ocr = ocr_text.lower()
-            lower_expected = expected_text.lower()
-            pos = lower_ocr.find(lower_expected)
-            start = max(0, pos - 50)
-            end = min(len(ocr_text), pos + len(expected_text) + 50)
-            context = ocr_text[start:end]
+        for r in regions:
+            if expected_text.lower() in r['text'].lower():
+                bbox = r['bbox']
+                center_x = int((bbox[0][0] + bbox[2][0]) / 2)
+                center_y = int((bbox[0][1] + bbox[2][1]) / 2)
+                return f"FOUND: '{r['text']}' -> click({center_x}, {center_y})"
 
-            return f"FOUND: '{expected_text}' is visible on screen.\nContext: ...{context}..."
-        else:
-            return f"NOT FOUND: '{expected_text}' was not detected on screen.\nOCR extracted {len(ocr_text)} characters. Sample: {ocr_text[:200]}..."
+        # Not found - show what was detected
+        all_text = [r['text'] for r in regions[:10]]
+        return f"NOT FOUND: '{expected_text}' not detected.\nVisible text: {all_text}"
 
     except Exception as e:
         return f"Error verifying text: {e}"
