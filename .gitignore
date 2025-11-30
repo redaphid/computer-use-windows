@@ -48,3 +48,4 @@ screenshots/
 # Test files
 test_*.py
 find_text.py
+nul
