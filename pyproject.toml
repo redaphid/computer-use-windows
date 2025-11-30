@@ -1,0 +1,49 @@
+[project]
+name = "computer-use-mcp"
+version = "0.1.0"
+description = "MCP server for computer control via screenshots, mouse, keyboard, OCR, and Win32 APIs"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+authors = [
+    { name = "redaphid" }
+]
+keywords = ["mcp", "computer-use", "automation", "windows", "ocr"]
+
+dependencies = [
+    "mcp>=1.0.0",
+    "mss>=9.0.0",
+    "pyautogui>=0.9.54",
+    "pillow>=10.0.0",
+    "pywinauto>=0.6.8",
+    "paddleocr>=2.7.0",
+    "paddlepaddle>=2.5.0",
+    "pywin32>=306",
+]
+
+[project.optional-dependencies]
+vision = [
+    "torch>=2.0.0",
+    "torchvision>=0.15.0",
+    "transformers>=4.40.0,<4.46",
+    "timm>=0.9.0",
+    "einops>=0.7.0",
+]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+]
+
+[project.scripts]
+computer-use-mcp = "computer_use_mcp:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["."]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

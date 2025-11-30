@@ -45,7 +45,7 @@ screenshots/
 .envrc
 .claude/
 
-# Test files
-test_*.py
+# Test files (keep tests/ directory)
+/test_*.py
 find_text.py
 nul
