@@ -23,6 +23,7 @@ from datetime import datetime
 from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp.resources import TextResource
 
 # Directory for saving screenshots - organized by session
 SCREENSHOTS_BASE = Path(__file__).parent / "screenshots"
@@ -115,6 +116,368 @@ INPUT:
 
 COORDINATES: Origin (0,0) is top-left. X increases right, Y increases down."""
 )
+
+# =============================================================================
+# MCP RESOURCES - Workflow documentation for consuming LLMs
+# =============================================================================
+
+# Basic UI Automation Workflow
+mcp.add_resource(TextResource(
+    uri="workflow://basic-ui-automation",
+    name="Basic UI Automation Workflow",
+    description="Step-by-step workflow for standard UI automation tasks",
+    mime_type="text/markdown",
+    text="""# Basic UI Automation Workflow
+
+## Standard Workflow
+1. **Take screenshot()** - Get visual overview of current screen state
+2. **Use ocr_screen()** - Extract all text with click coordinates
+3. **EXECUTE THE ACTION** - Use left_click(x, y) with coordinates from OCR
+4. **Use verify_text_on_screen("text")** - Confirm action worked
+
+## CRITICAL: Always Complete the Action!
+A common failure mode is finding the target but NOT executing the action.
+- Finding text via OCR is NOT the same as interacting with it
+- Seeing a button in a screenshot does NOT activate it
+- You MUST execute an action to actually DO something
+
+Common actions:
+- `left_click(x, y)` - Click on a button, link, or UI element
+- `type_text("...")` - Enter text into a focused field
+- `key("enter")` - Press Enter to submit/confirm
+- `key("tab")` - Move to next field
+
+**WRONG** (incomplete):
+```
+ocr_screen()
+-> 'Submit' -> click(500, 300)
+# STOPPED HERE - never actually clicked!
+```
+
+**RIGHT** (complete):
+```
+ocr_screen()
+-> 'Submit' -> click(500, 300)
+
+left_click(500, 300)  # Execute the action!
+
+verify_text_on_screen("success")  # Confirm it worked
+```
+
+**Also RIGHT** (keyboard action):
+```
+windows_search("Firefox")
+# Search opened with query typed
+
+key("enter")  # Execute the action - select first result!
+```
+
+## Key Principles
+- Always OCR before clicking to get accurate coordinates
+- **Always follow through - OCR finds targets, clicks execute actions**
+- Use coordinates returned by OCR directly - they map to native screen pixels
+- Verify actions completed before proceeding to next step
+- If OCR returns no results on dark UI, enable enhance mode first
+
+## Example: Complete Workflow
+```
+1. ocr_screen()
+   -> 'Save' -> click(500, 300)
+   -> 'Cancel' -> click(600, 300)
+
+2. left_click(500, 300)  # <-- THIS IS THE ACTION, DON'T SKIP IT!
+
+3. verify_text_on_screen("saved successfully")
+   -> FOUND: 'File saved successfully' -> click(400, 200)
+```
+""",
+    tags={"workflow", "basics", "getting-started"}
+))
+
+# Dark UI Workflow
+mcp.add_resource(TextResource(
+    uri="workflow://dark-ui-handling",
+    name="Dark UI Handling Workflow",
+    description="How to handle dark mode interfaces where OCR may fail",
+    mime_type="text/markdown",
+    text="""# Dark UI Handling Workflow
+
+## Problem
+OCR often fails on dark/low-contrast interfaces:
+- Terminal/CLI applications
+- Dark mode applications
+- Game loading screens
+- Dark-themed IDEs
+
+## Solution: Enable Enhance Mode FIRST
+```
+1. set_enhance_mode(true)    # Enable contrast enhancement
+2. ocr_screen()              # Now OCR can detect text
+3. left_click(x, y)          # Click using coordinates
+4. set_enhance_mode(false)   # Disable when done (optional)
+```
+
+## When to Enable Enhance Mode
+- OCR returns "No text detected" on a screen with visible text
+- Text appears gray-on-gray, light-on-light, or dark-on-dark
+- Working with terminals, code editors, or dark-themed apps
+- UI elements blend into background
+
+## Alternative: Use describe_screen()
+When OCR completely fails (graphical content, logos, games):
+```
+1. describe_screen()
+   -> "The screen shows a game menu with Play, Options, and Exit buttons"
+
+2. Use the description to understand screen state
+3. Estimate click positions based on description
+```
+
+## When to Disable Enhance Mode
+- Colors look over-saturated or unnatural
+- Enhancement is causing visual artifacts
+- You've moved to a light-themed application
+""",
+    tags={"workflow", "dark-mode", "troubleshooting"}
+))
+
+# Launching Applications Workflow
+mcp.add_resource(TextResource(
+    uri="workflow://launching-apps",
+    name="Launching Applications Workflow",
+    description="Reliable patterns for launching applications on Windows",
+    mime_type="text/markdown",
+    text="""# Launching Applications Workflow
+
+## Method 1: Direct Launch
+```
+launch_app("Notepad")
+launch_app("Firefox")
+```
+Works for: System apps, browsers, common applications
+
+## Method 2: Windows Search + Action
+```
+1. windows_search("App Name")
+   -> Opens Start menu with search query typed
+
+2. key("enter")              # <-- Don't forget this step!
+   -> Selects first result and launches
+
+3. verify the app started
+```
+Works for: Apps not in PATH, apps with spaces in names
+
+## Method 3: Full Path
+```
+launch_app("C:\\Program Files\\App\\app.exe")
+```
+
+## Common Mistake
+Calling windows_search() but NOT pressing Enter:
+```
+# WRONG - search opened but nothing launched!
+windows_search("Firefox")
+# stopped here...
+
+# RIGHT - complete the action!
+windows_search("Firefox")
+key("enter")
+```
+""",
+    tags={"workflow", "launching", "windows"}
+))
+
+# Window Management Workflow
+mcp.add_resource(TextResource(
+    uri="workflow://window-management",
+    name="Window Management Workflow",
+    description="How to find, focus, and manage application windows",
+    mime_type="text/markdown",
+    text="""# Window Management Workflow
+
+## Finding Windows
+```
+get_all_windows()
+-> Lists all visible windows with positions and sizes
+
+get_ui_state()
+-> Same but includes click coordinates for each window
+```
+
+## Focusing a Window
+IMPORTANT: Always focus the correct window before sending keyboard input!
+```
+# By title (partial match, case-insensitive)
+focus_window("Firefox")
+focus_window("Visual Studio")
+
+# By clicking
+find_and_click_window("Notepad")
+```
+
+## Window Operations
+```
+maximize_window("Firefox")
+minimize_window("Notepad")
+close_window("Calculator")
+```
+
+## Critical: Keyboard Focus
+Before using key() or type_text(), ensure correct window is focused:
+```
+# WRONG - may send keys to wrong window!
+key("ctrl+s")
+
+# RIGHT - focus first, then send keys
+focus_window("Notepad")
+key("ctrl+s")
+```
+
+## Example: Switch Between Apps
+```
+1. get_all_windows()
+   -> See what's open
+
+2. focus_window("Firefox")
+   -> Bring Firefox to front
+
+3. key("ctrl+t")
+   -> Now this opens a new tab in Firefox (not elsewhere)
+```
+""",
+    tags={"workflow", "windows", "focus"}
+))
+
+# Troubleshooting Workflow
+mcp.add_resource(TextResource(
+    uri="workflow://troubleshooting",
+    name="Troubleshooting Common Issues",
+    description="Solutions for common problems when using computer-use tools",
+    mime_type="text/markdown",
+    text="""# Troubleshooting Common Issues
+
+## OCR Returns No Text
+**Symptoms**: ocr_screen() returns "No text detected"
+**Solutions**:
+1. Enable enhance mode: `set_enhance_mode(true)`
+2. Retry OCR: `ocr_screen()`
+3. If still fails, use `describe_screen()` for graphical content
+
+## Clicks Not Working
+**Symptoms**: left_click() succeeds but nothing happens
+**Solutions**:
+1. Verify correct window is focused: `get_all_windows()`
+2. Focus the target window: `focus_window("title")`
+3. Retry the click
+4. Check if coordinates are correct with `zoom(x-50, y-50, 100, 100)`
+
+## Keys Sent to Wrong Window
+**Symptoms**: Keyboard input goes to wrong application
+**Solutions**:
+1. ALWAYS focus first: `focus_window("target app")`
+2. Small delay if needed (the tools handle this)
+3. Verify focus with `get_ui_state()`
+
+## App Won't Launch
+**Symptoms**: launch_app() returns "not found"
+**Solutions**:
+1. Use Windows search: `windows_search("app name")` then `key("enter")`
+2. Try full path: `launch_app("C:\\full\\path\\to\\app.exe")`
+3. For Steam games: `launch_app("steam://rungameid/GAMEID")`
+
+## Screen Looks Wrong in Screenshots
+**Symptoms**: Screenshot shows unexpected content
+**Solutions**:
+1. Check all windows: `get_all_windows()`
+2. A dialog or popup may be covering content
+3. App may still be loading - wait and retry
+4. Use `zoom()` to inspect specific regions at native resolution
+
+## Coordinates Don't Match
+**Symptoms**: Clicking coordinates from OCR hits wrong location
+**Solutions**:
+1. Ensure using coordinates directly from OCR (no manual calculation)
+2. Screen resolution may have changed - retake screenshot
+3. UI may have scrolled or changed - re-run OCR
+4. Use `zoom()` to verify what's at those coordinates
+""",
+    tags={"workflow", "troubleshooting", "debugging"}
+))
+
+# Text Input Workflow
+mcp.add_resource(TextResource(
+    uri="workflow://text-input",
+    name="Text Input Workflow",
+    description="Patterns for typing text and using keyboard shortcuts",
+    mime_type="text/markdown",
+    text="""# Text Input Workflow
+
+## Basic Text Entry
+```
+# Simple ASCII text
+type_text("Hello World")
+
+# For unicode/special characters
+type_unicode("Hello 世界 🌍")
+```
+
+## Keyboard Shortcuts
+```
+# Single keys
+key("enter")
+key("tab")
+key("escape")
+
+# Modifier combinations
+key("ctrl+s")      # Save
+key("ctrl+c")      # Copy
+key("ctrl+v")      # Paste
+key("alt+tab")     # Switch windows
+key("win+d")       # Show desktop
+key("ctrl+shift+s") # Save As (in many apps)
+```
+
+## Common Patterns
+
+### Fill a Form
+```
+1. left_click(x, y)           # Click first field
+2. type_text("John Doe")      # Enter name
+3. key("tab")                 # Move to next field
+4. type_text("john@email.com")
+5. key("tab")
+6. type_text("password123")
+7. key("enter")               # Submit
+```
+
+### Search and Replace
+```
+1. focus_window("Notepad")
+2. key("ctrl+h")              # Open replace dialog
+3. type_text("old text")
+4. key("tab")
+5. type_text("new text")
+6. key("enter")               # Replace
+```
+
+### Navigate with Keyboard
+```
+key("tab")        # Next element
+key("shift+tab")  # Previous element
+key("up")         # Up in list/menu
+key("down")       # Down in list/menu
+key("enter")      # Select/activate
+key("escape")     # Cancel/close
+```
+
+## Important Notes
+- `type_text()` is faster but ASCII-only
+- `type_unicode()` supports all characters but slower
+- Always focus the correct window before typing!
+""",
+    tags={"workflow", "keyboard", "typing"}
+))
 
 
 def get_screen_info() -> dict:
@@ -367,6 +730,8 @@ def set_enhance_mode(enabled: bool) -> str:
     """
     Turn contrast enhancement mode ON or OFF.
 
+    See resource workflow://dark-ui-handling for when and how to use this.
+
     When enhance mode is ON, all screenshots and zoomed regions will have
     contrast enhancement applied automatically. This persists until you
     turn it OFF.
@@ -411,6 +776,9 @@ def get_screen_size() -> dict:
 def left_click(x: int, y: int) -> str:
     """
     Perform a left mouse click at the specified coordinates.
+
+    This executes the click action. Use ocr_screen() first to find coordinates.
+    See resource workflow://basic-ui-automation for the complete workflow.
 
     Args:
         x: X coordinate (pixels from left edge)
@@ -526,6 +894,10 @@ def type_unicode(text: str) -> str:
 def key(keys: str) -> str:
     """
     Press a key or key combination.
+
+    This executes a keyboard action. Often used after ocr_screen() or
+    windows_search() to complete the interaction (e.g., pressing Enter).
+    See resource workflow://text-input for keyboard patterns.
 
     Args:
         keys: Key name or combination (e.g., "enter", "ctrl+s", "alt+tab", "win+r")
@@ -675,10 +1047,15 @@ def ocr_screen() -> str:
     Returns text with click coordinates. Each line shows:
       'detected text' -> click(x, y)
 
+    IMPORTANT: OCR only FINDS targets - you must still execute an action!
+    Common actions: left_click(x,y), type_text("..."), key("enter")
+    See resource workflow://basic-ui-automation for the complete workflow.
+
     To click on detected text, use the coordinates directly with left_click(x, y).
 
     If enhance mode is ON, contrast enhancement is applied before OCR
-    which can help with low-contrast text.
+    which can help with low-contrast text. If OCR returns no results on a
+    dark UI, see resource workflow://dark-ui-handling.
     """
     global _enhance_enabled
 
@@ -831,6 +1208,9 @@ def close_window(title: str) -> str:
 def focus_window(title: str) -> str:
     """
     Bring a window to the foreground by title.
+
+    IMPORTANT: Always focus the correct window before sending keyboard input!
+    See resource workflow://window-management for details.
 
     Args:
         title: Part of the window title (case-insensitive)
