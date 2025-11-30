@@ -9,7 +9,6 @@ An MCP (Model Context Protocol) server that enables Claude to control your Windo
 - **Input Control** - Mouse clicks, keyboard input, drag operations
 - **OCR** - PaddleOCR for accurate text extraction with click coordinates
 - **AI Vision** - Florence-2 for screen descriptions
-- **Journal** - Cross-session learning from past observations
 
 ## Quick Start
 
@@ -103,12 +102,6 @@ For window management, use Win32 tools instead of clicking X buttons.
 | `find_and_click_window(title)` | Focus window by clicking |
 | `get_ui_state()` | Get all windows with coordinates |
 
-### Journal (Cross-Session Learning)
-| Tool | Description |
-|------|-------------|
-| `journal_write(observation, tags)` | Record what worked/didn't |
-| `journal_query(search_term)` | Query past observations |
-
 ## Requirements
 
 - Windows 10/11
@@ -122,7 +115,6 @@ For window management, use Win32 tools instead of clicking X buttons.
 computer_use_mcp.py   - Main MCP server with all tools
 florence_vision.py    - PaddleOCR + Florence-2 integration
 vision_tools.py       - Windows UI Automation helpers
-journal.md            - Persistent journal file
 ```
 
 ## License

@@ -45,10 +45,6 @@ For window management, prefer the Win32 tools over clicking X buttons.
 - `get_mouse_position` - Current cursor position
 - `get_screen_size` - Screen dimensions
 
-### Journal (Cross-Session Learning)
-- `journal_write(observation, tags)` - Record what worked/didn't work
-- `journal_query(search_term)` - Query past observations
-
 ## Coordinate System
 
 - Origin (0, 0) is top-left
@@ -71,12 +67,6 @@ ocr_screen()                 # Get all text with coordinates
 # Output: 'Save' -> click(1234, 567)
 left_click(1234, 567)        # Click on Save
 verify_text_on_screen("Saved")  # Confirm it worked
-```
-
-### Record What Works
-```
-journal_write("Alt+F4 reliably closes most windows", "close,keyboard")
-journal_query("close")       # Find past learnings
 ```
 
 ## Dependencies
