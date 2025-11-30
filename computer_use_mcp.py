@@ -33,6 +33,9 @@ SESSION_ID = datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + uuid.uuid4().hex[:
 SCREENSHOTS_DIR = SCREENSHOTS_BASE / SESSION_ID
 SCREENSHOTS_DIR.mkdir(exist_ok=True)
 
+# Journal file for recording observations and learnings
+JOURNAL_FILE = Path(__file__).parent / "journal.md"
+
 # Only import GUI libraries if not just showing help
 if "--help" not in sys.argv and "-h" not in sys.argv:
     import mss
@@ -42,6 +45,17 @@ if "--help" not in sys.argv and "-h" not in sys.argv:
     # Safety settings
     pyautogui.FAILSAFE = True
     pyautogui.PAUSE = 0.05
+
+    # Import Win32 APIs for better Windows integration
+    try:
+        import win32gui
+        import win32con
+        import win32process
+        import subprocess
+        _win32_available = True
+    except ImportError as e:
+        print(f"Warning: Win32 API not available: {e}")
+        _win32_available = False
 
     # Import UI automation tools
     try:
@@ -773,6 +787,287 @@ def verify_text_on_screen(expected_text: str) -> str:
 
     except Exception as e:
         return f"Error verifying text: {e}"
+
+
+# =============================================================================
+# JOURNAL TOOLS - Record and query observations
+# =============================================================================
+
+@mcp.tool()
+def journal_write(observation: str, tags: str = "") -> str:
+    """
+    Record an observation or learning to the journal.
+
+    Use this to note:
+    - What worked (e.g., "Alt+F4 reliably closes windows")
+    - What didn't work (e.g., "Clicking X at top-right missed on Firefox")
+    - UI patterns discovered (e.g., "Steam store has low contrast, needs enhance mode")
+    - Coordinates or techniques that succeeded
+
+    Args:
+        observation: The observation to record
+        tags: Optional comma-separated tags (e.g., "firefox,close,alt+f4")
+
+    The journal persists across sessions and can be queried later.
+    """
+    try:
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        tag_str = f" [{tags}]" if tags else ""
+
+        entry = f"\n## {timestamp}{tag_str}\n{observation}\n"
+
+        with open(JOURNAL_FILE, "a", encoding="utf-8") as f:
+            f.write(entry)
+
+        return f"Recorded to journal: {observation[:100]}..."
+    except Exception as e:
+        return f"Error writing to journal: {e}"
+
+
+@mcp.tool()
+def journal_query(search_term: str = "", limit: int = 10) -> str:
+    """
+    Query the journal for past observations.
+
+    Use this to recall:
+    - What worked before for a similar task
+    - Known issues or workarounds
+    - Successful techniques or coordinates
+
+    Args:
+        search_term: Text to search for (searches both content and tags)
+        limit: Maximum entries to return (default: 10)
+
+    Returns matching journal entries, most recent first.
+    """
+    try:
+        if not JOURNAL_FILE.exists():
+            return "Journal is empty. Use journal_write() to record observations."
+
+        with open(JOURNAL_FILE, "r", encoding="utf-8") as f:
+            content = f.read()
+
+        # Split into entries (each starts with ## timestamp)
+        entries = content.split("\n## ")
+        entries = [e.strip() for e in entries if e.strip()]
+
+        # Filter by search term if provided
+        if search_term:
+            search_lower = search_term.lower()
+            entries = [e for e in entries if search_lower in e.lower()]
+
+        # Return most recent first, limited
+        entries = entries[-limit:][::-1]
+
+        if not entries:
+            return f"No journal entries found matching '{search_term}'"
+
+        result = [f"Journal entries ({len(entries)} found):"]
+        for entry in entries:
+            # Truncate long entries
+            if len(entry) > 300:
+                entry = entry[:300] + "..."
+            result.append(f"\n## {entry}")
+
+        return "\n".join(result)
+    except Exception as e:
+        return f"Error reading journal: {e}"
+
+
+# =============================================================================
+# WINDOWS INTEGRATION - Win32 API for proper window control
+# =============================================================================
+
+@mcp.tool()
+def close_window(title: str) -> str:
+    """
+    Close a window by title using Win32 API.
+
+    More reliable than clicking the X button. Sends WM_CLOSE message.
+
+    Args:
+        title: Part of the window title (case-insensitive)
+
+    Returns success/failure message.
+    """
+    if not _win32_available:
+        return "Error: Win32 API not available"
+
+    try:
+        def callback(hwnd, results):
+            if win32gui.IsWindowVisible(hwnd):
+                window_title = win32gui.GetWindowText(hwnd)
+                if title.lower() in window_title.lower():
+                    results.append((hwnd, window_title))
+            return True
+
+        results = []
+        win32gui.EnumWindows(callback, results)
+
+        if not results:
+            return f"No window found containing '{title}'"
+
+        hwnd, window_title = results[0]
+        win32gui.PostMessage(hwnd, win32con.WM_CLOSE, 0, 0)
+        return f"Sent close message to '{window_title}'"
+
+    except Exception as e:
+        return f"Error closing window: {e}"
+
+
+@mcp.tool()
+def focus_window(title: str) -> str:
+    """
+    Bring a window to the foreground by title.
+
+    Args:
+        title: Part of the window title (case-insensitive)
+    """
+    if not _win32_available:
+        return "Error: Win32 API not available"
+
+    try:
+        def callback(hwnd, results):
+            if win32gui.IsWindowVisible(hwnd):
+                window_title = win32gui.GetWindowText(hwnd)
+                if title.lower() in window_title.lower():
+                    results.append((hwnd, window_title))
+            return True
+
+        results = []
+        win32gui.EnumWindows(callback, results)
+
+        if not results:
+            return f"No window found containing '{title}'"
+
+        hwnd, window_title = results[0]
+        win32gui.SetForegroundWindow(hwnd)
+        return f"Focused '{window_title}'"
+
+    except Exception as e:
+        return f"Error focusing window: {e}"
+
+
+@mcp.tool()
+def minimize_window(title: str) -> str:
+    """
+    Minimize a window by title.
+
+    Args:
+        title: Part of the window title (case-insensitive)
+    """
+    if not _win32_available:
+        return "Error: Win32 API not available"
+
+    try:
+        def callback(hwnd, results):
+            if win32gui.IsWindowVisible(hwnd):
+                window_title = win32gui.GetWindowText(hwnd)
+                if title.lower() in window_title.lower():
+                    results.append((hwnd, window_title))
+            return True
+
+        results = []
+        win32gui.EnumWindows(callback, results)
+
+        if not results:
+            return f"No window found containing '{title}'"
+
+        hwnd, window_title = results[0]
+        win32gui.ShowWindow(hwnd, win32con.SW_MINIMIZE)
+        return f"Minimized '{window_title}'"
+
+    except Exception as e:
+        return f"Error minimizing window: {e}"
+
+
+@mcp.tool()
+def maximize_window(title: str) -> str:
+    """
+    Maximize a window by title.
+
+    Args:
+        title: Part of the window title (case-insensitive)
+    """
+    if not _win32_available:
+        return "Error: Win32 API not available"
+
+    try:
+        def callback(hwnd, results):
+            if win32gui.IsWindowVisible(hwnd):
+                window_title = win32gui.GetWindowText(hwnd)
+                if title.lower() in window_title.lower():
+                    results.append((hwnd, window_title))
+            return True
+
+        results = []
+        win32gui.EnumWindows(callback, results)
+
+        if not results:
+            return f"No window found containing '{title}'"
+
+        hwnd, window_title = results[0]
+        win32gui.ShowWindow(hwnd, win32con.SW_MAXIMIZE)
+        return f"Maximized '{window_title}'"
+
+    except Exception as e:
+        return f"Error maximizing window: {e}"
+
+
+@mcp.tool()
+def launch_app(app_name: str) -> str:
+    """
+    Launch an application using Windows Search/Start menu.
+
+    Args:
+        app_name: Name of the app to launch (e.g., "Firefox", "Notepad", "Steam")
+
+    Uses Windows search to find and launch the app.
+    """
+    try:
+        # Use PowerShell Start-Process which handles app resolution
+        result = subprocess.run(
+            ["powershell", "-Command", f"Start-Process '{app_name}'"],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+
+        if result.returncode == 0:
+            return f"Launched '{app_name}'"
+        else:
+            # Try shell execute as fallback
+            os.startfile(app_name)
+            return f"Launched '{app_name}' via shell"
+
+    except FileNotFoundError:
+        return f"App '{app_name}' not found. Try the full path or exact name."
+    except Exception as e:
+        return f"Error launching app: {e}"
+
+
+@mcp.tool()
+def windows_search(query: str) -> str:
+    """
+    Open Windows Search and type a query.
+
+    Args:
+        query: What to search for
+
+    Opens the Start menu search and types the query.
+    """
+    try:
+        # Press Windows key to open Start/Search
+        pyautogui.press('win')
+        time.sleep(0.3)
+
+        # Type the search query
+        pyautogui.typewrite(query, interval=0.02)
+
+        return f"Opened Windows search with query: '{query}'. Press Enter to select first result."
+
+    except Exception as e:
+        return f"Error with Windows search: {e}"
 
 
 def main():
