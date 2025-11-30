@@ -1,14 +1,15 @@
 # Computer Use MCP Server for Windows
 
-An MCP (Model Context Protocol) server that enables Claude to control your Windows desktop through screenshots, mouse, keyboard, and AI-powered screen understanding.
+An MCP (Model Context Protocol) server that enables Claude to control your Windows desktop through screenshots, mouse, keyboard, OCR, and Win32 APIs.
 
 ## Features
 
-- **UI Automation** - Windows accessibility API for reliable element detection
+- **Win32 Integration** - Native window management (close, focus, minimize, maximize)
 - **Screen Capture** - Screenshots with zoom and contrast enhancement
 - **Input Control** - Mouse clicks, keyboard input, drag operations
-- **OCR** - PaddleOCR for accurate text extraction from screen
+- **OCR** - PaddleOCR for accurate text extraction with click coordinates
 - **AI Vision** - Florence-2 for screen descriptions
+- **Journal** - Cross-session learning from past observations
 
 ## Quick Start
 
@@ -27,7 +28,7 @@ cd computer-use-windows
 # Create venv and install dependencies
 uv venv --python 3.11
 uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
-uv pip install "transformers<4.46" timm einops mss pyautogui pillow mcp pywinauto paddleocr paddlepaddle
+uv pip install "transformers<4.46" timm einops mss pyautogui pillow mcp pywinauto paddleocr paddlepaddle pywin32
 ```
 
 ### 3. Configure Claude Code
@@ -49,23 +50,41 @@ The `.mcp.json` file configures Claude Code to use this server:
 
 The computer-use tools will now be available.
 
+## Workflow
+
+```
+1. ocr_screen()                  # Get text with click coordinates
+2. left_click(x, y)              # Click using coordinates from OCR
+3. verify_text_on_screen("text") # Confirm action worked
+```
+
+For window management, use Win32 tools instead of clicking X buttons.
+
 ## Available Tools
 
-### UI Automation (Most Reliable)
+### Win32 Window Management (Most Reliable)
 | Tool | Description |
 |------|-------------|
-| `get_ui_state()` | Get all windows and taskbar apps with coordinates |
-| `get_taskbar_apps()` | List taskbar items with click coordinates |
-| `click_taskbar_app(name)` | Click a taskbar app by name |
-| `get_all_windows()` | List all open windows |
-| `find_and_click_window(title)` | Find and focus a window |
+| `close_window(title)` | Close window via WM_CLOSE |
+| `focus_window(title)` | Bring window to foreground |
+| `minimize_window(title)` | Minimize window |
+| `maximize_window(title)` | Maximize window |
+| `launch_app(name)` | Launch app via PowerShell |
+| `windows_search(query)` | Open Windows search |
+
+### OCR
+| Tool | Description |
+|------|-------------|
+| `ocr_screen()` | Extract text with click coordinates |
+| `verify_text_on_screen(text)` | Find text and get coordinates |
+| `set_enhance_mode(bool)` | Toggle contrast enhancement |
 
 ### Screen Capture
 | Tool | Description |
 |------|-------------|
 | `screenshot()` | Capture full screen |
 | `zoom(x, y, w, h)` | Capture region at native resolution |
-| `set_enhance_mode(bool)` | Toggle contrast enhancement |
+| `describe_screen()` | AI description (Florence-2) |
 
 ### Input
 | Tool | Description |
@@ -77,12 +96,18 @@ The computer-use tools will now be available.
 | `key(keys)` | Press key combination (e.g., "ctrl+s") |
 | `scroll(x, y, direction)` | Scroll at position |
 
-### AI Vision
+### Windows Info
 | Tool | Description |
 |------|-------------|
-| `ocr_screen()` | Extract all text from screen (PaddleOCR) |
-| `verify_text_on_screen(text)` | Check if text is visible |
-| `describe_screen()` | AI description of screen (Florence-2) |
+| `get_all_windows()` | List open windows with positions |
+| `find_and_click_window(title)` | Focus window by clicking |
+| `get_ui_state()` | Get all windows with coordinates |
+
+### Journal (Cross-Session Learning)
+| Tool | Description |
+|------|-------------|
+| `journal_write(observation, tags)` | Record what worked/didn't |
+| `journal_query(search_term)` | Query past observations |
 
 ## Requirements
 
@@ -97,6 +122,7 @@ The computer-use tools will now be available.
 computer_use_mcp.py   - Main MCP server with all tools
 florence_vision.py    - PaddleOCR + Florence-2 integration
 vision_tools.py       - Windows UI Automation helpers
+journal.md            - Persistent journal file
 ```
 
 ## License
